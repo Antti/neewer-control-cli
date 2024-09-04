@@ -40,44 +40,42 @@ mod _errors_ {
 pub use _errors_::*;
 
 //#[allow(unused)]
-#[rustfmt::skip]
 mod _characteristics_ {
     use btleplug::api::CharPropFlags as Flags;
     use btleplug::api::Characteristic;
+    use std::collections::BTreeSet;
+    use std::sync::LazyLock;
+    use uuid::{uuid, Uuid};
+
     // Service
-    pub const BLE_SVC_UUID_STR: &str       = "69400001-B5A3-F393-E0A9-E50E24DCCA99";
+    pub const BLE_SVC_UUID: Uuid = uuid!("69400001-B5A3-F393-E0A9-E50E24DCCA99");
     // W & W w/o Response.
-    pub const DEV_CTL_UUID_STR: &str       = "69400002-B5A3-F393-E0A9-E50E24DCCA99";
+    pub const DEV_CTL_UUID: Uuid = uuid!("69400002-B5A3-F393-E0A9-E50E24DCCA99");
     // Notify
-    pub const GATT_UUID_STR: &str          = "69400003-B5A3-F393-E0A9-E50E24DCCA99";
+    pub const GATT_UUID: Uuid = uuid!("69400003-B5A3-F393-E0A9-E50E24DCCA99");
 
     // Service
     #[allow(unused)]
-    pub const UNKNOWN_SVC_UUID_STR: &str     = "7f510004-b5a3-f393-e0a9-e50e24dcca9e";
+    pub const UNKNOWN_SVC_UUID_STR: Uuid = uuid!("7f510004-b5a3-f393-e0a9-e50e24dcca9e");
     // W & W w/o Response
     #[allow(unused)]
-    pub const UNKNOWN_W_WO_UUID_STR: &str    = "7f510005-b5a3-f393-e0a9-e50e24dcca9e";
+    pub const UNKNOWN_W_WO_UUID_STR: Uuid = uuid!("7f510005-b5a3-f393-e0a9-e50e24dcca9e");
     // W & W w/o Response & Notify
     #[allow(unused)]
-    pub const UNKNOWN_W_WO_NT_UUID_STR: &str = "7f510006-b5a3-f393-e0a9-e50e24dcca9e";
-    use lazy_static::lazy_static;
-    lazy_static! {
-        pub static ref BLE_SVC_UUID: uuid::Uuid = uuid::Uuid::parse_str(BLE_SVC_UUID_STR).unwrap();
-        pub static ref DEV_CTL_UUID: uuid::Uuid = uuid::Uuid::parse_str(DEV_CTL_UUID_STR).unwrap();
-        pub static ref GATT_UUID: uuid::Uuid = uuid::Uuid::parse_str(GATT_UUID_STR).unwrap();
-        pub static ref GATT: Characteristic =
-            Characteristic {
-                uuid: *GATT_UUID,
-                service_uuid: *BLE_SVC_UUID,
-                properties: Flags::NOTIFY,
-            };
-        pub static ref DEV_CTL: Characteristic =
-            Characteristic {
-            uuid: *DEV_CTL_UUID,
-            service_uuid: *BLE_SVC_UUID,
-            properties: Flags::WRITE_WITHOUT_RESPONSE.union(Flags::WRITE),
-        };
-    }
+    pub const UNKNOWN_W_WO_NT_UUID_STR: Uuid = uuid!("7f510006-b5a3-f393-e0a9-e50e24dcca9e");
+
+    pub static GATT: LazyLock<Characteristic> = LazyLock::new(|| Characteristic {
+        uuid: GATT_UUID,
+        service_uuid: BLE_SVC_UUID,
+        properties: Flags::NOTIFY,
+        descriptors: BTreeSet::new(),
+    });
+    pub static DEV_CTL: LazyLock<Characteristic> = LazyLock::new(|| Characteristic {
+        uuid: DEV_CTL_UUID,
+        service_uuid: BLE_SVC_UUID,
+        properties: Flags::WRITE_WITHOUT_RESPONSE.union(Flags::WRITE),
+        descriptors: BTreeSet::new(),
+    });
 }
 pub use _characteristics_::*;
 
@@ -89,28 +87,28 @@ mod _in_band_ {
     /// len == number of u8
     ///
     /// OP              magic?      cmd   len      msg                                     checksum
-    ///                 --------    ----  ----     ----  -------------------------------------------- 
+    ///                 --------    ----  ----     ----  --------------------------------------------
     /// LIGHT_PWR_ON    [0x78u8,    0x81, 0x01,    0x01, .iter().fold(0u8, |x, y| x.wrapping_add(*y))]
     /// LIGHT_PWR_OFF   [0x78u8,    0x81, 0x01,    0x02, checksum]
     ///
     /// CHANNEL_STATUS? [0x78u8,    0x84, 0x00, checksum]  responds on Notify service
     /// PWR_STATUS?     [0x78u8,    0x85, 0x00, checksum]  ""
-    /// 
+    ///
     /// // Mode data transimission
     ///  (Checksum excluded, see above)
-    /// 
+    ///
     /// HSI value  type    range
     ///-----------------------------
     ///        hue: u16  |  0..360
-    /// saturation: u8   |  0..100  
+    /// saturation: u8   |  0..100
     /// intensity: u8   |  0..100
     /// [0x78, 0x86, 4, (hue & 0xff) or hue as u8, (hue >> 8) as u8, saturation, intensity, checksum];
 
     /// CCT
     /// brightness: u8   |  0..100
     /// temp:       u8   |  32..56
-    /// [0x78, 0x87, 2, brightness, temp, checksum] 
-    
+    /// [0x78, 0x87, 2, brightness, temp, checksum]
+
     /// ANIM
     /// brightness: u8   |  0...100
     /// scene:      u8   |  0..9
@@ -220,7 +218,7 @@ pub trait Packet: Sized + Pod + Zeroable + Copy {
         }
         {
             let checksum = self.gen_checksum();
-            let mut footer = self.footer_mut();
+            let footer = self.footer_mut();
             footer.checksum = checksum;
         }
         self

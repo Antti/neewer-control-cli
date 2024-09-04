@@ -7,18 +7,17 @@ description = "control neewer lights"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-btleplug = { version = "~0.9", features = ["serde"] }
-uuid = "*"
-pretty_env_logger = "*"
-rand = "*"
-tokio = { version = "~1.15", features = ["macros", "rt-multi-thread", "sync"] }
-tokio-stream = "*"
-log = "*"
-futures = "*"
-# once_cell = "*"
-lazy_static = "*"
+btleplug = { version = "~0.11", features = ["serde"] }
 bytemuck = { version = "*", features = ["derive"] }
+futures = "*"
+log = "*"
+rand = "*"
 strum_macros = "*"
+tokio = { version = "~1.40", features = ["macros", "rt-multi-thread", "sync"] }
+tokio-stream = "*"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+uuid = "*"
 
 [package.metadata.bundle]
 identifier = "io.github.Antti.neewer-control"

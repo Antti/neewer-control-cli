@@ -1,21 +1,19 @@
 // See the "macOS permissions note" in README.md before running this on macOS
 // Big Sur or later.
 
-use log::{debug};
-
 use btle_plat::PeripheralId;
 use btleplug::platform as btle_plat;
 
 use btleplug::api::bleuuid::BleUuid;
 use btleplug::api::{
-    Central, CentralEvent, Manager as _, Peripheral as _, ScanFilter,
-    ValueNotification, WriteType,
+    Central, CentralEvent, Manager as _, Peripheral as _, ScanFilter, ValueNotification, WriteType,
 };
 use btleplug::Error as BlePlugError;
 use tokio_stream::{StreamExt, StreamMap};
 
 use btle_plat::{Manager, Peripheral};
 use std::error::Error;
+use tracing::{debug, info};
 
 mod device;
 mod state;
@@ -32,19 +30,28 @@ async fn handle_btle_notification(
     value: &ValueNotification,
     // _tx: AsyncSender,
 ) -> Result<PeripheralId, BlePlugError> {
-    println!("Received notification from {id:?}: {value:?}");
-    change_power(central, &id, false).await?;
+    info!("Received notification from {id:?}: {value:?}");
+    if value.uuid == device::GATT_UUID {
+        if value.value.len() == 5 {
+            let power_status = value.value[1] == 2;
+            change_power(central, &id, !power_status).await?;
+        }
+    }
     Ok(id.clone())
 }
 
-async fn change_power(central: &btle_plat::Adapter, peripheral_id: &PeripheralId, power: bool) -> Result<(), BlePlugError> {
+async fn change_power(
+    central: &btle_plat::Adapter,
+    peripheral_id: &PeripheralId,
+    power: bool,
+) -> Result<(), BlePlugError> {
     let peripheral = central.peripheral(peripheral_id).await?;
     let pkt = device::Power::from(power);
     let msg = pkt.bytes();
     if power {
-        println!("Switching on peripheral {peripheral_id:?}");
+        info!("Switching on peripheral {peripheral_id:?}");
     } else {
-        println!("Switching off peripheral {peripheral_id:?}");
+        info!("Switching off peripheral {peripheral_id:?}");
     }
     peripheral
         .write(&device::DEV_CTL, msg, WriteType::WithoutResponse)
@@ -81,18 +88,18 @@ async fn handle_btle_event(
             let properties = peripheral.properties().await?;
             if let Some(properties) = properties {
                 if let Some(device_name) = properties.local_name {
-                    // println!("DeviceDiscovered {id:?}: {device_name:?}");
+                    // debug!("DeviceDiscovered {id:?}: {device_name:?}");
 
                     if device_name.contains("NEEWER") {
                         peripheral.connect().await?;
-                        println!("connecting to device: {:?}", device_name);
+                        info!("connecting to device: {:?}", device_name);
                     }
                 }
             };
             // Ok(id.clone())
         }
         CentralEvent::DeviceConnected(id) => {
-            println!("DeviceConnected: {:?}", id);
+            info!("DeviceConnected: {:?}", id);
             // central.stop_scan().await?;
 
             let peripheral = central.peripheral(id).await?;
@@ -106,15 +113,16 @@ async fn handle_btle_event(
                     .await
                     .expect("Discovering services");
                 let ctrstc = peripheral.characteristics();
-                let has_ctrstc =
-                    ctrstc.contains(&device::GATT) && ctrstc.contains(&device::DEV_CTL);
+                debug!("Found characteristics: {:?}", ctrstc);
+                let has_ctrstc = ctrstc.iter().any(|crtc| crtc.uuid == device::GATT_UUID)
+                    && ctrstc.iter().any(|crtc| crtc.uuid == device::DEV_CTL_UUID);
                 if has_ctrstc {
                     characteristics = Some(ctrstc);
                 } else {
                     retry_count += 1
                 }
             }
-            println!("Retried finding characteristics: {} times", retry_count);
+            debug!("Retried finding characteristics: {} times", retry_count);
             if let Some(_characteristics) = characteristics {
                 let notifs = peripheral.notifications().await?;
                 stream_map.insert(
@@ -124,13 +132,15 @@ async fn handle_btle_event(
 
                 peripheral.subscribe(&device::GATT).await?;
 
+                // request power status
                 peripheral
                     .write(
                         &device::DEV_CTL,
                         &device::POWER_STATUS,
-                        WriteType::WithoutResponse,
+                        WriteType::WithResponse,
                     )
                     .await?;
+                // request channel status
                 peripheral
                     .write(
                         &device::DEV_CTL,
@@ -144,7 +154,7 @@ async fn handle_btle_event(
             }
         }
         CentralEvent::DeviceDisconnected(id) => {
-            println!("DeviceDisconnected: {:?}", id);
+            debug!("DeviceDisconnected: {:?}", id);
         }
         CentralEvent::ManufacturerDataAdvertisement {
             id,
@@ -168,7 +178,8 @@ async fn handle_btle_event(
 }
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    pretty_env_logger::init();
+    // install global collector configured based on RUST_LOG env var.
+    tracing_subscriber::fmt::init();
 
     let mut stream_map: StreamMap<StreamKey, EventStreams> = StreamMap::new();
 
